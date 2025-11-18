@@ -153,6 +153,8 @@ function_kde <- function(individual_kde){
     geom_sf(data=kde75.sf, fill = "yellow", alpha = 0.2) +
     geom_point(data=kde.points, aes(x=x, y=y), color = "lightgray") + 
     coord_sf(xlim = x_coord,  ylim = y_coord) +
+    scale_x_continuous(expand = c(0, 0)) +
+    scale_y_continuous(expand = c(0, 0)) +
     labs(x="Easting (m)", y="Northing (m)", title=kde.points$identifier) +
     theme(legend.position="none", plot.title = element_text(face = "bold", hjust = 0.5))
   kde.plot + annotate("text", x = 560000, y = 8831000, label = paste("95% ",round(ver95$area,2)," ha"), 
@@ -199,12 +201,54 @@ function_kde_2 <- function(individual_kde_2){
     geom_sf(data=kde75.sf, fill = "yellow", alpha = 0.2) +
     geom_point(data=kde.points, aes(x=x, y=y), color = "lightgray") + 
     coord_sf(xlim = xspec,  ylim = yspec) +
+    scale_x_continuous(expand = c(0, 0)) +
+    scale_y_continuous(expand = c(0, 0)) +
     labs(x="Easting (m)", y="Northing (m)", title=kde.points$identifier) +
     theme(legend.position="none", plot.title = element_text(face = "bold", hjust = 0.5))
   kde.plot + annotate("text", x = xanno, y = yanno, label = paste("95% ",round(ver95$area,2)," ha"), 
-                      fontface = "bold", size = 3, color = "white")
+                      fontface = "bold", size = 4, color = "white")
 }
 
 pblapply(list_flyfox_ind, function_kde_2)
+```
+
+<br>
+
+## MCP
+
+<br>
+
+```{r MCP}
+
+function_mcp <- function(individual_mcp){
+  data <- individual_mcp
+  x <- as.data.frame(data$utm.easting)
+  y <- as.data.frame(data$utm.northing)
+  xy <- c(x,y)
+  xspec <- c(min(x-1000), max(x+1000))
+  yspec <- c(min(y-1000), max(y+1000))
+  xanno <- min(x-500)
+  yanno <- min(y-500)
+  data.proj <- SpatialPointsDataFrame(xy, data, proj4string = CRS("+proj=utm +zone=48 +datum=WGS84 +units=m +no_defs"))
+  xy.sp <- SpatialPoints(data.proj@coords)
+  mcp.out <- mcp(xy.sp, percent=100, unout="ha")
+  mcp.sf <- st_as_sf(mcp.out)
+  mcp.points <- cbind((data.frame(xy)),data$individual.local.identifier)
+  colnames(mcp.points) <- c("x","y", "identifier")
+
+mcp.plot <- ggplot() + theme_bw() +
+  theme(axis.text.y = element_text(angle = 90, hjust = 0.5, vjust = 0.5)) + 
+  theme(panel.grid = element_blank()) +
+  geom_spatial_rgb(data = map_christmas, aes(x=x, y=y, r=red, g=green, b=blue)) +
+  geom_sf(data=mcp.sf, alpha = 0.2) +
+  geom_point(data=mcp.points, aes(x=x, y=y), color = "lightgreen") + 
+  labs(x="Easting (m)", y="Northing (m)", title=mcp.points$identifier) +
+  theme(legend.position="none", plot.title = element_text(face = "bold", hjust = 0.5)) +
+  coord_sf(xlim = xspec,  ylim = yspec)
+mcp.plot + annotate("text", x = xanno, y = yanno, label = paste(round(mcp.out@data$area,2),"ha"), 
+                    fontface = "bold", size = 4, color = "white")
+}
+
+pblapply(list_flyfox_ind, function_mcp)
 ```
 
