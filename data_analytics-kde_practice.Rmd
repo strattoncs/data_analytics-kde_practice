@@ -1,0 +1,210 @@
+---
+title: "Data Analytics KDE Practice"
+author: "C.S. Stratton"
+date: "`r Sys.Date()`"
+output: 
+  html_document:
+    toc: TRUE
+    toc_float: TRUE
+    toc_depth: 3
+  base_font:
+        google: "Arial"
+---
+<style type="text/css">
+
+body{ /* Normal  */
+      font-size: 16px;
+      text-align: justified;
+}
+
+
+h1 { /* Header 1 */
+  font-size: 42px;
+  color: darkblue;
+  text-decoration: underline;
+  }
+
+h2 { /* Header 2 */
+  font-size: 30px;
+  color: orangered;
+  }
+
+
+h3 { /* Header 2 */
+  font-size: 24px;
+  color: Black;
+  }
+  
+</style>
+---
+
+```{r setup, include=FALSE}
+
+pacman::p_load("adehabitatHR", "ctmm", "pbapply", "raster", "sf", "sp", "terra", "terrainr", "tidyverse")
+
+data_flyfox <- read.csv("flying_fox_christmas.csv") %>%
+  select(event.id, timestamp, location.long, location.lat, individual.taxon.canonical.name, individual.local.identifier, utm.easting, utm.northing, utm.zone)
+
+#data_flyfox$individual.local.identifier <- as.factor(data_flyfox$individual.local.identifier)
+
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+```
+
+<br>
+
+## Flying Foxes
+
+<br>
+
+<center>
+
+![](images/flyfox_fly.jpeg)  
+
+![](images/flyfox_ad.jpeg)  
+
+![](images/flyfox_ud.jpeg)
+
+</center>
+
+
+<br>
+<br>
+
+```{r plotly}
+
+plotly_flyfox <- ggplot() + geom_point(data=data_flyfox, 
+                                   aes(utm.easting, utm.northing,
+                                       color=individual.local.identifier)) +
+                        labs(x="Easting", y="Northing") +
+                        guides(color=guide_legend("Identifier"))
+
+plotly::ggplotly(plotly_flyfox)
+```
+
+
+
+```{r number of observations}
+data_flyfox %>% group_by(individual.local.identifier) %>%
+    summarise(n())
+
+list_flyfox_ind_full <- split(data_flyfox, data_flyfox$individual.local.identifier)
+
+list_flyfox_ind <- list_flyfox_ind_full[1:10]
+flyfox_ind <- names(list_flyfox_ind)
+```
+
+<br>
+
+## Santa Living at the North Pole is a Clever Misdirection
+
+<br>
+
+```{r Christmas Island Raster}
+ortho <- "images/christmas.tif"
+
+image_stack <- raster::stack(ortho)
+
+crop_full <- raster::extent(min(data_flyfox$utm.easting-5000), 
+                            max(data_flyfox$utm.easting+5000), 
+                            min(data_flyfox$utm.northing-5000), 
+                            max(data_flyfox$utm.northing+5000))
+
+
+x_coord <- c(min(data_flyfox$utm.easting-5000), max(data_flyfox$utm.easting+5000))
+y_coord <- c(min(data_flyfox$utm.northing-5000), max(data_flyfox$utm.northing+5000))
+
+image_full <- crop(image_stack, crop_full)
+
+map_christmas <- as.data.frame(image_full, xy = TRUE) %>% setNames(c("x", "y", "red", "green", "blue"))
+
+ggplot()+geom_spatial_rgb(data = map_christmas, aes(x=x, y=y, r=red, g=green, b=blue))+coord_sf() + scale_x_continuous(expand = c(0, 0)) +
+scale_y_continuous(expand = c(0, 0))
+```
+
+<br>
+
+## KDE Loop Attempt 1
+
+<br>
+
+```{r kde looooops}
+
+function_kde <- function(individual_kde){
+  data <- individual_kde
+  x <- as.data.frame(data$utm.easting)
+  y <- as.data.frame(data$utm.northing)
+  xy <- c(x,y)
+  data.proj <- SpatialPointsDataFrame(xy, data, proj4string = CRS("+proj=utm +zone=48 +datum=WGS84 +units=m +no_defs"))
+  xy.sp <- SpatialPoints(data.proj@coords)
+  kde<-kernelUD(xy.sp, h="href", kern="bivnorm", extent = 3, grid=200)
+  ver95 <- getverticeshr(kde, 95)
+  ver85 <- getverticeshr(kde, 85)
+  ver75 <- getverticeshr(kde, 75)
+  kde.points <- cbind((data.frame(xy)),data$individual.local.identifier)
+  colnames(kde.points) <- c("x","y","identifier")
+  kde95.sf <- st_as_sf(ver95)
+  kde85.sf <- st_as_sf(ver85)
+  kde75.sf <- st_as_sf(ver75)
+  kde.plot <- ggplot() + theme_bw() + 
+    theme(axis.text.y = element_text(angle = 90, hjust = 0.5, vjust = 0.5)) + 
+    geom_spatial_rgb(data = map_christmas, aes(x=x, y=y, r=red, g=green, b=blue)) +
+    geom_sf(data=kde95.sf, fill = "blue", alpha = 0.4) +
+    geom_sf(data=kde85.sf, fill = "green", alpha = 0.3) +
+    geom_sf(data=kde75.sf, fill = "yellow", alpha = 0.2) +
+    geom_point(data=kde.points, aes(x=x, y=y), color = "lightgray") + 
+    coord_sf(xlim = x_coord,  ylim = y_coord) +
+    labs(x="Easting (m)", y="Northing (m)", title=kde.points$identifier) +
+    theme(legend.position="none", plot.title = element_text(face = "bold", hjust = 0.5))
+  kde.plot + annotate("text", x = 560000, y = 8831000, label = paste("95% ",round(ver95$area,2)," ha"), 
+                      fontface = "bold", size = 3, color = "white")
+}
+
+pblapply(list_flyfox_ind, function_kde)
+
+```
+
+<br>
+
+## KDE Loops Adjusted
+
+<br>
+
+```{r kde loop fix attempt}
+
+function_kde_2 <- function(individual_kde_2){
+  data <- individual_kde_2
+  x <- as.data.frame(data$utm.easting)
+  y <- as.data.frame(data$utm.northing)
+  xy <- c(x,y)
+  xspec <- c(min(x-1000), max(x+1000))
+  yspec <- c(min(y-1000), max(y+1000))
+  xanno <- min(x-500)
+  yanno <- min(y-500)
+  data.proj <- SpatialPointsDataFrame(xy, data, proj4string = CRS("+proj=utm +zone=48 +datum=WGS84 +units=m +no_defs"))
+  xy.sp <- SpatialPoints(data.proj@coords)
+  kde<-kernelUD(xy.sp, h="href", kern="bivnorm", extent = 3, grid=200)
+  ver95 <- getverticeshr(kde, 95)
+  ver85 <- getverticeshr(kde, 85)
+  ver75 <- getverticeshr(kde, 75)
+  kde.points <- cbind((data.frame(xy)),data$individual.local.identifier)
+  colnames(kde.points) <- c("x","y","identifier")
+  kde95.sf <- st_as_sf(ver95)
+  kde85.sf <- st_as_sf(ver85)
+  kde75.sf <- st_as_sf(ver75)
+  kde.plot <- ggplot() + theme_bw() + 
+    theme(axis.text.y = element_text(angle = 90, hjust = 0.5, vjust = 0.5)) + 
+    geom_spatial_rgb(data = map_christmas, aes(x=x, y=y, r=red, g=green, b=blue)) +
+    geom_sf(data=kde95.sf, fill = "blue", alpha = 0.4) +
+    geom_sf(data=kde85.sf, fill = "green", alpha = 0.3) +
+    geom_sf(data=kde75.sf, fill = "yellow", alpha = 0.2) +
+    geom_point(data=kde.points, aes(x=x, y=y), color = "lightgray") + 
+    coord_sf(xlim = xspec,  ylim = yspec) +
+    labs(x="Easting (m)", y="Northing (m)", title=kde.points$identifier) +
+    theme(legend.position="none", plot.title = element_text(face = "bold", hjust = 0.5))
+  kde.plot + annotate("text", x = xanno, y = yanno, label = paste("95% ",round(ver95$area,2)," ha"), 
+                      fontface = "bold", size = 3, color = "white")
+}
+
+pblapply(list_flyfox_ind, function_kde_2)
+```
+

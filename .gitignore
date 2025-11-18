@@ -1,3 +1,15 @@
+#data
+*.csv
+
+#images
+/images
+
+#project
+*.Rproj
+
+#html
+data_analytics-kde_practice.html
+
 # History files
 .Rhistory
 .Rapp.history
